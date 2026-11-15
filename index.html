@@ -1,0 +1,2232 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>REAL ROUTE 3D DRIVE - 実在ルート＆街並みバーチャルドライブ</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Three.js (r128) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Tone.js (環境エンジン音) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    input[type="text"] {
+      user-select: text;
+      -webkit-user-select: text;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #030712;
+      font-family: 'Noto Sans JP', sans-serif;
+    }
+    .mono {
+      font-family: 'Share Tech Mono', monospace;
+    }
+    #three-container {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+      touch-action: none;
+    }
+    #three-container canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    #hud-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 4;
+      pointer-events: none;
+    }
+    .touch-btn {
+      touch-action: none;
+    }
+    @media (pointer: coarse), (max-width: 1023px) {
+      #mobile-controls {
+        display: flex !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- 3Dワールド描画 -->
+  <div id="three-container"></div>
+
+  <!-- コックピット＆カーナビHUD -->
+  <canvas id="hud-canvas"></canvas>
+
+  <!-- 上部ツールバー -->
+  <div class="fixed top-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+    <div class="flex items-center gap-2 pointer-events-auto bg-slate-950/80 border border-sky-500/40 rounded-xl px-3 py-1.5 backdrop-blur-md shadow-lg">
+      <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+      <span class="mono text-xs font-bold text-sky-300 tracking-wider">REAL ROUTE 3D</span>
+      <button id="btn-open-route-modal" type="button" class="ml-1 px-2.5 py-1 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-[11px] transition cursor-pointer">
+        ルート変更
+      </button>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-1.5 pointer-events-auto bg-slate-950/80 border border-sky-500/40 rounded-xl px-2.5 py-1.5 backdrop-blur-md shadow-lg">
+      <button id="btn-speed-mult" type="button" class="mono px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-500/30 text-indigo-200 border border-indigo-400/50 hover:bg-indigo-500/40 cursor-pointer transition">
+        SPEED: 1.5x
+      </button>
+      <button id="btn-cruise" type="button" class="mono px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-500/30 text-emerald-200 border border-emerald-400/50 hover:bg-emerald-500/40 cursor-pointer transition">
+        CRUISE: ON
+      </button>
+      <button id="btn-time" type="button" class="mono px-2.5 py-1 rounded-lg text-[11px] text-amber-300 border border-amber-400/40 hover:bg-white/10 cursor-pointer transition">
+        TIME: 14:00
+      </button>
+      <button id="btn-sound" type="button" class="mono px-2.5 py-1 rounded-lg text-[11px] text-slate-200 border border-white/20 hover:bg-white/10 cursor-pointer transition">
+        SOUND: OFF
+      </button>
+    </div>
+  </div>
+
+  <!-- 出発地・目的地設定モーダル -->
+  <div id="route-modal" class="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4">
+    <div class="max-w-lg w-full bg-slate-900/95 border border-sky-400/50 rounded-2xl p-5 sm:p-6 shadow-2xl text-slate-100">
+      <div class="flex items-center justify-between mb-1">
+        <span class="mono text-xs tracking-widest text-sky-400">OPENSTREETMAP + ELEVATION 3D ENGINE</span>
+        <span class="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">APIキー不要・無料</span>
+      </div>
+      <h1 class="text-xl sm:text-2xl font-bold text-white mb-2">実在ルート 3Dバーチャルドライブ</h1>
+      <p class="text-xs text-slate-300 mb-4 leading-relaxed">
+        出発地と目的地を入力すると、実際の道路ルート・カーブ・標高（坂道）・沿道の建物・森林・水辺データを取得して3D空間に再現します。
+      </p>
+
+      <!-- プリセットコース -->
+      <div class="mb-4">
+        <div class="text-[11px] text-slate-400 font-semibold mb-1.5">おすすめプリセットコース（ワンクリック入力）</div>
+        <div class="grid grid-cols-2 gap-1.5">
+          <button type="button" data-from="東京駅" data-to="お台場海浜公園" class="preset-btn text-left px-2.5 py-2 rounded-xl bg-slate-800/90 hover:bg-sky-500/20 border border-white/10 hover:border-sky-400/50 text-xs transition cursor-pointer">
+            <div class="font-bold text-sky-300">東京駅 → お台場</div>
+            <div class="text-[10px] text-slate-400">都心ビル街＆レインボーブリッジ</div>
+          </button>
+          <button type="button" data-from="佐倉駅" data-to="印旛沼サンセットヒルズ" class="preset-btn text-left px-2.5 py-2 rounded-xl bg-slate-800/90 hover:bg-sky-500/20 border border-white/10 hover:border-sky-400/50 text-xs transition cursor-pointer">
+            <div class="font-bold text-emerald-300">千葉・佐倉駅 → 印旛沼</div>
+            <div class="text-[10px] text-slate-400">市街地から田園・湖畔ルート</div>
+          </button>
+          <button type="button" data-from="鎌倉駅" data-to="江ノ島" class="preset-btn text-left px-2.5 py-2 rounded-xl bg-slate-800/90 hover:bg-sky-500/20 border border-white/10 hover:border-sky-400/50 text-xs transition cursor-pointer">
+            <div class="font-bold text-amber-300">鎌倉駅 → 江ノ島</div>
+            <div class="text-[10px] text-slate-400">湘南の街並み＆シーサイド</div>
+          </button>
+          <button type="button" data-from="箱根湯本駅" data-to="芦ノ湖" class="preset-btn text-left px-2.5 py-2 rounded-xl bg-slate-800/90 hover:bg-sky-500/20 border border-white/10 hover:border-sky-400/50 text-xs transition cursor-pointer">
+            <div class="font-bold text-rose-300">箱根湯本 → 芦ノ湖</div>
+            <div class="text-[10px] text-slate-400">急勾配ヒルクライム＆山岳森林</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- 出発地・目的地フォーム -->
+      <div class="space-y-2 mb-3">
+        <div>
+          <label for="input-from" class="block text-xs font-semibold text-slate-300 mb-1">出発地（スタート地点）</label>
+          <input id="input-from" type="text" value="佐倉駅" placeholder="例：佐倉駅、東京駅、横浜駅..." class="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-white/15 focus:border-sky-400 focus:outline-none text-sm text-white" />
+        </div>
+        <div class="flex items-center justify-between gap-2 pt-0.5">
+          <span class="text-[11px] text-slate-400">ルート方向</span>
+          <button id="btn-swap-places" type="button" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[11px] font-bold flex items-center gap-1 transition cursor-pointer">
+            <span>⇅ 出発地と目的地を入れ替え（逆走ルート）</span>
+          </button>
+        </div>
+        <div>
+          <label for="input-via" class="block text-xs font-semibold text-slate-300 mb-1">経由地（任意・通りたい道やスポットを指定）</label>
+          <input id="input-via" type="text" value="" placeholder="例：臼井駅、国道296号、レインボーブリッジ（空欄可）" class="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-white/15 focus:border-sky-400 focus:outline-none text-sm text-white" />
+        </div>
+        <div>
+          <label for="input-to" class="block text-xs font-semibold text-slate-300 mb-1">目的地（ゴール地点）</label>
+          <input id="input-to" type="text" value="印旛沼サンセットヒルズ" placeholder="例：印旛沼サンセットヒルズ、お台場海浜公園..." class="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-white/15 focus:border-sky-400 focus:outline-none text-sm text-white" />
+        </div>
+      </div>
+
+      <!-- ルート候補選択リスト（複数ルート検索後に表示） -->
+      <div id="route-candidates-box" class="hidden mb-3 p-3 rounded-xl bg-slate-950/90 border border-emerald-500/40">
+        <div class="text-[11px] font-bold text-emerald-300 mb-2">走行するルートを選択してください</div>
+        <div id="route-candidates-list" class="space-y-1.5 max-h-36 overflow-y-auto"></div>
+      </div>
+
+      <!-- ステータスメッセージ＆ローディング -->
+      <div id="route-status-box" class="hidden mb-3 p-3 rounded-xl bg-slate-950/90 border border-sky-500/30 text-xs text-sky-300 flex items-center gap-2.5">
+        <span id="route-spinner" class="inline-block w-4 h-4 border-2 border-sky-400 border-t-transparent rounded-full animate-spin shrink-0"></span>
+        <span id="route-status-text">地図データを取得中...</span>
+      </div>
+
+      <div class="flex gap-2">
+        <button id="btn-search-routes" type="button" class="py-3 px-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-sky-400/50 text-sky-300 font-bold text-xs tracking-wide transition active:scale-95 cursor-pointer">
+          ルート候補を検索
+        </button>
+        <button id="btn-build-drive" type="button" class="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-sky-500 to-emerald-500 hover:from-sky-400 hover:to-emerald-400 text-slate-950 font-bold text-sm tracking-wide shadow-lg shadow-sky-500/25 transition active:scale-95 cursor-pointer">
+          このルートでドライブ出発
+        </button>
+        <button id="btn-close-modal" type="button" class="hidden py-3 px-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs transition cursor-pointer">
+          閉じる
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ゴール到着オーバーレイ -->
+  <div id="arrival-overlay" class="hidden fixed inset-0 z-30 flex items-center justify-center bg-slate-950/75 backdrop-blur-md p-4 text-center">
+    <div class="max-w-sm w-full bg-slate-900/95 border-2 border-emerald-400/80 rounded-2xl p-6 shadow-2xl">
+      <div class="mono text-xs tracking-widest text-emerald-400 mb-1">DESTINATION REACHED</div>
+      <h2 class="text-2xl font-bold text-white mb-2">目的地に到着しました！</h2>
+      <p id="arrival-summary" class="text-xs text-slate-300 mb-5 leading-relaxed">
+        東京駅 → お台場海浜公園（走行距離 6.4 km）
+      </p>
+      <div class="flex flex-col gap-2">
+        <button id="btn-drive-again" type="button" class="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs tracking-wider transition cursor-pointer">
+          同じルートをもう一度走る
+        </button>
+        <button id="btn-new-route" type="button" class="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs transition cursor-pointer">
+          別の出発地・目的地を設定する
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- モバイル操作パッド（手動運転用） -->
+  <div id="mobile-controls" class="hidden fixed bottom-3 left-3 right-3 z-20 flex items-end justify-between pointer-events-none">
+    <div class="flex gap-2 pointer-events-auto">
+      <button id="m-left" type="button" class="touch-btn w-14 h-14 rounded-2xl bg-slate-950/80 border border-sky-400/50 text-sky-300 font-bold text-xl flex items-center justify-center">◀</button>
+      <button id="m-right" type="button" class="touch-btn w-14 h-14 rounded-2xl bg-slate-950/80 border border-sky-400/50 text-sky-300 font-bold text-xl flex items-center justify-center">▶</button>
+    </div>
+    <div class="flex gap-2 pointer-events-auto">
+      <button id="m-brake" type="button" class="touch-btn w-14 h-14 rounded-2xl bg-rose-600/85 border border-rose-300 text-white font-bold text-xs flex items-center justify-center">BRK</button>
+      <button id="m-gas" type="button" class="touch-btn w-14 h-14 rounded-2xl bg-emerald-500/85 border border-emerald-200 text-slate-950 font-bold text-xs flex items-center justify-center">GAS</button>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * REAL ROUTE 3D DRIVE
+     * Nominatim + OSRM + Open-Meteo Elevation + Overpass API を統合した
+     * APIキー不要・実在ルート＆街並み3Dバーチャルドライブシミュレーター
+     */
+
+    // =========================================================================
+    // 1. アプリ状態＆ルートデータ構造
+    // =========================================================================
+    const appState = {
+      hasRoute: false,
+      driving: false,
+      arrived: false,
+      autoCruise: true,
+      speedMultiplier: 1.5,
+      soundEnabled: false,
+      timeOfDay: 14.0,
+      fromName: '東京駅',
+      toName: 'お台場海浜公園',
+      totalDistance: 5000,    // メートル
+      currentDist: 0,         // 現在の走行距離（m）
+      lateralOffset: 0,       // 車線内の横ズレ（m）
+      speedKmh: 0,
+      steerAngle: 0
+    };
+
+    // 構築済みルートデータ
+    let routeData = {
+      samples: [],            // [{ dist, x, y, z, lat, lon, heading, roadName, isBridge }]
+      features: [],
+      bounds: { minX: -500, maxX: 500, minZ: -500, maxZ: 500 }
+    };
+
+    // 検索済みルート候補キャッシュ
+    let searchedRouteCache = {
+      key: '',
+      fromCoord: null,
+      viaCoord: null,
+      toCoord: null,
+      routes: [],
+      selectedIndex: 0
+    };
+
+    const keys = { up: false, down: false, left: false, right: false };
+
+    let scene = null;
+    let camera = null;
+    let renderer = null;
+    let hemiLight = null;
+    let sunLight = null;
+    let groundPlane = null;
+    let routeWorldGroup = null;
+    let clock = new THREE.Clock();
+    let hudCanvas = null;
+    let hudCtx = null;
+
+    // =========================================================================
+    // 2. 緯度経度 ⇔ ローカル平面座標（メートル）変換＆補間
+    // =========================================================================
+    function latLonToLocalMeters(lat, lon, originLat, originLon) {
+      const radLat = (originLat * Math.PI) / 180;
+      const mPerDegLat = 111132.92 - 559.82 * Math.cos(2 * radLat) + 1.175 * Math.cos(4 * radLat);
+      const mPerDegLon = 111412.84 * Math.cos(radLat) - 93.5 * Math.cos(3 * radLat);
+      return {
+        x: (lon - originLon) * mPerDegLon,
+        z: -(lat - originLat) * mPerDegLat
+      };
+    }
+
+    async function fetchDrivingRoutes(fromCoord, toCoord, viaCoord = null) {
+      const waypoints = viaCoord
+        ? `${fromCoord.lon},${fromCoord.lat};${viaCoord.lon},${viaCoord.lat};${toCoord.lon},${toCoord.lat}`
+        : `${fromCoord.lon},${fromCoord.lat};${toCoord.lon},${toCoord.lat}`;
+      const altParam = viaCoord ? 'false' : 'true';
+      const url = `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson&steps=true&alternatives=${altParam}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('ルート検索に失敗しました');
+      const data = await res.json();
+      if (!data.routes || data.routes.length === 0) {
+        throw new Error('車で行けるルートが見つかりませんでした');
+      }
+      return data.routes;
+    }
+
+    function summarizeRouteRoads(route) {
+      const names = [];
+      if (route.legs) {
+        for (const leg of route.legs) {
+          for (const st of (leg.steps || [])) {
+            const n = (st.name || st.ref || '').trim();
+            if (n && !names.includes(n) && names.length < 4) {
+              names.push(n);
+            }
+          }
+        }
+      }
+      return names.length > 0 ? names.join(' → ') : '一般道路ルート';
+    }
+
+    async function searchRouteCandidates() {
+      const fromInput = document.getElementById('input-from').value.trim();
+      const viaInput = document.getElementById('input-via').value.trim();
+      const toInput = document.getElementById('input-to').value.trim();
+      if (!fromInput || !toInput) {
+        setStatus('出発地と目的地の両方を入力してください。', false, true);
+        return null;
+      }
+
+      const cacheKey = `${fromInput}|${viaInput}|${toInput}`;
+      setStatus('出発地・経由地・目的地から複数ルート候補を検索中...');
+
+      const tasks = [geocodePlace(fromInput), geocodePlace(toInput)];
+      if (viaInput) tasks.push(geocodePlace(viaInput));
+      const coords = await Promise.all(tasks);
+      const fromCoord = coords[0];
+      const toCoord = coords[1];
+      const viaCoord = viaInput ? coords[2] : null;
+
+      const routes = await fetchDrivingRoutes(fromCoord, toCoord, viaCoord);
+      searchedRouteCache = {
+        key: cacheKey,
+        fromCoord,
+        viaCoord,
+        toCoord,
+        routes,
+        selectedIndex: 0
+      };
+
+      const box = document.getElementById('route-candidates-box');
+      const list = document.getElementById('route-candidates-list');
+      list.innerHTML = '';
+      box.classList.remove('hidden');
+
+      routes.forEach((rt, idx) => {
+        const km = (rt.distance / 1000).toFixed(1);
+        const mins = Math.max(1, Math.round(rt.duration / 60));
+        const summary = summarizeRouteRoads(rt);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = idx === 0
+          ? 'w-full text-left p-2 rounded-lg bg-sky-500/25 border border-sky-400 text-xs text-white transition cursor-pointer'
+          : 'w-full text-left p-2 rounded-lg bg-slate-900/90 border border-white/10 hover:border-sky-400/50 text-xs text-slate-300 transition cursor-pointer';
+        btn.innerHTML = `
+          <div class="flex items-center justify-between font-bold">
+            <span class="text-sky-300">候補 ${idx + 1}（${km} km / 約${mins}分）</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-emerald-300">${idx === 0 ? '選択中' : 'クリックで選択'}</span>
+          </div>
+          <div class="text-[11px] text-slate-300 truncate mt-0.5">${summary}</div>
+        `;
+        btn.addEventListener('click', () => {
+          searchedRouteCache.selectedIndex = idx;
+          Array.from(list.children).forEach((child, cIdx) => {
+            const active = cIdx === idx;
+            child.className = active
+              ? 'w-full text-left p-2 rounded-lg bg-sky-500/25 border border-sky-400 text-xs text-white transition cursor-pointer'
+              : 'w-full text-left p-2 rounded-lg bg-slate-900/90 border border-white/10 hover:border-sky-400/50 text-xs text-slate-300 transition cursor-pointer';
+            const badge = child.querySelector('span:last-child');
+            if (badge) badge.textContent = active ? '選択中' : 'クリックで選択';
+          });
+        });
+        list.appendChild(btn);
+      });
+
+      setStatus(`${routes.length}件のルート候補が見つかりました。好みのルートを選んで出発できます。`, false, false);
+      return searchedRouteCache;
+    }
+
+    function haversineMeters(lat1, lon1, lat2, lon2) {
+      const R = 6371000;
+      const p1 = (lat1 * Math.PI) / 180;
+      const p2 = (lat2 * Math.PI) / 180;
+      const dp = ((lat2 - lat1) * Math.PI) / 180;
+      const dl = ((lon2 - lon1) * Math.PI) / 180;
+      const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+      return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function sampleRouteAtDistance(dist) {
+      const samples = routeData.samples;
+      if (samples.length === 0) {
+        return { x: 0, y: 0, z: 0, heading: 0, roadName: 'MAIN ROUTE', isBridge: false };
+      }
+      if (dist <= 0) return samples[0];
+      const last = samples[samples.length - 1];
+      if (dist >= last.dist) return last;
+
+      // バイナリサーチで区間特定
+      let lo = 0;
+      let hi = samples.length - 1;
+      while (lo + 1 < hi) {
+        const mid = (lo + hi) >> 1;
+        if (samples[mid].dist <= dist) lo = mid;
+        else hi = mid;
+      }
+
+      const s0 = samples[lo];
+      const s1 = samples[hi];
+      const span = Math.max(0.0001, s1.dist - s0.dist);
+      const t = (dist - s0.dist) / span;
+
+      // 方位角の最短補間
+      let diffH = s1.heading - s0.heading;
+      while (diffH > Math.PI) diffH -= Math.PI * 2;
+      while (diffH < -Math.PI) diffH += Math.PI * 2;
+
+      return {
+        x: s0.x + (s1.x - s0.x) * t,
+        y: s0.y + (s1.y - s0.y) * t,
+        z: s0.z + (s1.z - s0.z) * t,
+        heading: s0.heading + diffH * t,
+        roadName: s0.roadName,
+        isBridge: s0.isBridge
+      };
+    }
+
+    // =========================================================================
+    // 3. 無料オープンAPI群からの実在地図・標高・地物データ取得
+    // =========================================================================
+    function setStatus(text, isLoading = true, isError = false) {
+      const box = document.getElementById('route-status-box');
+      const spinner = document.getElementById('route-spinner');
+      const label = document.getElementById('route-status-text');
+      box.classList.remove('hidden');
+      spinner.classList.toggle('hidden', !isLoading);
+      box.className = isError
+        ? 'mb-4 p-3 rounded-xl bg-rose-950/90 border border-rose-500/50 text-xs text-rose-200 flex items-center gap-2.5'
+        : 'mb-4 p-3 rounded-xl bg-slate-950/90 border border-sky-500/30 text-xs text-sky-300 flex items-center gap-2.5';
+      label.textContent = text;
+    }
+
+    async function geocodePlace(query) {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=ja&q=${encodeURIComponent(query)}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('地名検索サーバーに接続できませんでした');
+      const data = await res.json();
+      if (!data || data.length === 0) {
+        throw new Error(`「${query}」が見つかりませんでした。駅名や施設名で試してください。`);
+      }
+      return {
+        lat: parseFloat(data[0].lat),
+        lon: parseFloat(data[0].lon),
+        displayName: data[0].display_name.split(',')[0]
+      };
+    }
+
+    async function fetchDrivingRoute(fromCoord, toCoord) {
+      const url = `https://router.project-osrm.org/route/v1/driving/${fromCoord.lon},${fromCoord.lat};${toCoord.lon},${toCoord.lat}?overview=full&geometries=geojson&steps=true`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('ルート検索に失敗しました');
+      const data = await res.json();
+      if (!data.routes || data.routes.length === 0) {
+        throw new Error('車で行けるルートが見つかりませんでした');
+      }
+      return data.routes[0];
+    }
+
+    async function fetchElevations(points) {
+      // Open-Meteo Elevation API（最大100地点ずつ一括取得可能）
+      const elevations = new Array(points.length).fill(5);
+      const chunkSize = 80;
+      try {
+        for (let i = 0; i < points.length; i += chunkSize) {
+          const slice = points.slice(i, i + chunkSize);
+          const lats = slice.map((p) => p.lat.toFixed(5)).join(',');
+          const lons = slice.map((p) => p.lon.toFixed(5)).join(',');
+          const url = `https://api.open-meteo.com/v1/elevation?latitude=${lats}&longitude=${lons}`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const json = await res.json();
+            if (Array.isArray(json.elevation)) {
+              for (let j = 0; j < json.elevation.length; j++) {
+                elevations[i + j] = json.elevation[j] ?? 5;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // 標高APIが一時的に混雑している場合は平坦ベースで継続
+      }
+      return elevations;
+    }
+
+    // =========================================================================
+    // 3.5 Overpass周辺取得ユーティリティ（チャンク分割・重複排除・ポリゴン処理）
+    // =========================================================================
+    const OVERPASS_ENDPOINT = 'https://overpass-api.de/api/interpreter';
+    const OVERPASS_CHUNK_CHECKPOINTS = 13;   // 1クエリあたりのチェックポイント数
+    const OVERPASS_CHECKPOINT_SPACING = 230; // チェックポイント間隔（m）
+
+    // ルートサンプル列から約230m間隔のチェックポイント（{lat, lon}）を抽出
+    function buildOverpassCheckpoints(samples) {
+      const checkpoints = [];
+      if (!samples || samples.length === 0) return checkpoints;
+      let nextTarget = 0;
+      for (let i = 0; i < samples.length; i++) {
+        const s = samples[i];
+        if (s.dist >= nextTarget) {
+          checkpoints.push({ lat: s.lat, lon: s.lon });
+          nextTarget = s.dist + OVERPASS_CHECKPOINT_SPACING;
+        }
+      }
+      const last = samples[samples.length - 1];
+      const lastCp = checkpoints[checkpoints.length - 1];
+      if (!lastCp || lastCp.lat !== last.lat || lastCp.lon !== last.lon) {
+        checkpoints.push({ lat: last.lat, lon: last.lon });
+      }
+      return checkpoints;
+    }
+
+    function chunkArray(arr, size) {
+      const chunks = [];
+      for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
+      return chunks;
+    }
+
+    // 1チャンク分のOverpassクエリを生成（建物・土地利用・水域・河川・交差道路・信号を実ジオメトリで取得）
+    function buildOverpassChunkQuery(checkpoints) {
+      const clauses = [];
+      for (const cp of checkpoints) {
+        const lat = cp.lat.toFixed(5);
+        const lon = cp.lon.toFixed(5);
+        clauses.push(`way(around:280,${lat},${lon})["building"];`);
+        clauses.push(`way(around:320,${lat},${lon})["landuse"~"forest|farmland|meadow|residential|industrial|commercial|retail"];`);
+        clauses.push(`way(around:340,${lat},${lon})["natural"~"wood|water"];`);
+        clauses.push(`way(around:340,${lat},${lon})["waterway"~"river|canal|stream"];`);
+        clauses.push(`way(around:300,${lat},${lon})["highway"~"motorway|trunk|primary|secondary|tertiary|unclassified|residential|service"];`);
+        clauses.push(`node(around:300,${lat},${lon})["highway"="traffic_signals"];`);
+        clauses.push(`rel(around:340,${lat},${lon})["natural"="water"];`);
+        clauses.push(`rel(around:340,${lat},${lon})["landuse"~"forest|farmland|meadow"];`);
+      }
+      return `[out:json][timeout:30];(${clauses.join('')});out geom 4500;`;
+    }
+
+    // 要素を type/id で重複排除（チャンク境界の二重取得を統合）
+    function dedupeOsmElements(elements) {
+      const seen = new Set();
+      const out = [];
+      for (const el of elements || []) {
+        if (!el || el.id === undefined || !el.type) continue;
+        const key = `${el.type}/${el.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(el);
+      }
+      return out;
+    }
+
+    // マルチポリゴンの member way 群（[{lat,lon}...] の配列）を端点接続でリングに縫合
+    function stitchWaysToRings(ways) {
+      const eq = (a, b) => Math.abs(a.lat - b.lat) < 1e-9 && Math.abs(a.lon - b.lon) < 1e-9;
+      const pool = (ways || []).filter((w) => w && w.length >= 2).map((w) => w.slice());
+      const rings = [];
+      while (pool.length > 0) {
+        let ring = pool.shift();
+        let extended = true;
+        while (extended && ring.length > 1 && !eq(ring[0], ring[ring.length - 1])) {
+          extended = false;
+          const first = ring[0];
+          const last = ring[ring.length - 1];
+          for (let i = 0; i < pool.length; i++) {
+            const w = pool[i];
+            const wFirst = w[0];
+            const wLast = w[w.length - 1];
+            if (eq(wFirst, last)) {
+              ring = ring.concat(w.slice(1));
+            } else if (eq(wLast, last)) {
+              ring = ring.concat(w.slice(0, -1).reverse());
+            } else if (eq(wLast, first)) {
+              ring = w.concat(ring.slice(1));
+            } else if (eq(wFirst, first)) {
+              ring = w.slice(0, -1).reverse().concat(ring);
+            } else {
+              continue;
+            }
+            pool.splice(i, 1);
+            extended = true;
+            break;
+          }
+        }
+        if (ring.length >= 4 && eq(ring[0], ring[ring.length - 1])) rings.push(ring);
+      }
+      return rings;
+    }
+
+    // マルチポリゴン relation を、外周リングを持つ疑似 way 要素に変換（穴は扱わない）
+    function relationToPolygonElements(rel) {
+      if (!rel || !rel.members) return [];
+      const outerWays = rel.members
+        .filter((m) => m.type === 'way' && m.geometry && m.geometry.length >= 2 && m.role !== 'inner')
+        .map((m) => m.geometry);
+      const rings = stitchWaysToRings(outerWays);
+      return rings.map((ring, idx) => ({
+        type: 'way',
+        id: -(Math.abs(rel.id) * 1000 + idx + 1),
+        tags: rel.tags || {},
+        geometry: ring
+      }));
+    }
+
+    // XZ平面ポリゴン（[{x, z}...]）の内外判定（レイキャスティング）
+    function pointInPolygonXZ(x, z, ring) {
+      let inside = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const xi = ring[i].x, zi = ring[i].z;
+        const xj = ring[j].x, zj = ring[j].z;
+        if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) {
+          inside = !inside;
+        }
+      }
+      return inside;
+    }
+
+    // ルートサンプルへの最近傍ルックアップ（グリッド索引で高速化。地形追従配置用）
+    function createNearestSampleLookup(samples, stride = 4, cellSize = 24) {
+      const pts = [];
+      for (let i = 0; i < samples.length; i += stride) pts.push(samples[i]);
+      if (samples.length > 0 && pts[pts.length - 1] !== samples[samples.length - 1]) {
+        pts.push(samples[samples.length - 1]);
+      }
+      const grid = new Map();
+      const keyOf = (cx, cz) => cx + ',' + cz;
+      for (const p of pts) {
+        const k = keyOf(Math.floor(p.x / cellSize), Math.floor(p.z / cellSize));
+        let arr = grid.get(k);
+        if (!arr) { arr = []; grid.set(k, arr); }
+        arr.push(p);
+      }
+      return function lookupNearestSample(x, z) {
+        const cx = Math.floor(x / cellSize);
+        const cz = Math.floor(z / cellSize);
+        let best = null;
+        let bestSq = Infinity;
+        for (let r = 0; r <= 64; r++) {
+          for (let gx = cx - r; gx <= cx + r; gx++) {
+            for (let gz = cz - r; gz <= cz + r; gz++) {
+              if (r > 0 && Math.abs(gx - cx) !== r && Math.abs(gz - cz) !== r) continue;
+              const arr = grid.get(keyOf(gx, gz));
+              if (!arr) continue;
+              for (const p of arr) {
+                const dx = x - p.x;
+                const dz = z - p.z;
+                const dSq = dx * dx + dz * dz;
+                if (dSq < bestSq) { bestSq = dSq; best = p; }
+              }
+            }
+          }
+          if (best && bestSq <= r * cellSize * r * cellSize) break;
+        }
+        if (!best) {
+          for (const p of pts) {
+            const dx = x - p.x;
+            const dz = z - p.z;
+            const dSq = dx * dx + dz * dz;
+            if (dSq < bestSq) { bestSq = dSq; best = p; }
+          }
+        }
+        return {
+          dist: Math.sqrt(bestSq),
+          nearestY: best ? best.y : 0,
+          nearestHeading: best ? best.heading : 0
+        };
+      };
+    }
+
+    // 1チャンク分の取得（失敗時は1回だけリトライ、それでも駄目なら null）
+    async function fetchOverpassChunkElements(query) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const res = await fetch(OVERPASS_ENDPOINT, {
+            method: 'POST',
+            body: 'data=' + encodeURIComponent(query)
+          });
+          if (!res.ok) throw new Error('Overpass HTTP ' + res.status);
+          const data = await res.json();
+          return data.elements || [];
+        } catch (e) {
+          if (attempt === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 1200));
+          }
+        }
+      }
+      return null;
+    }
+
+    async function fetchSurroundingsOverpass(samples) {
+      // ルート沿いをチャンク分割して取得し、取れた区間だけでも描画できるようにする
+      const checkpoints = buildOverpassCheckpoints(samples);
+      const chunks = chunkArray(checkpoints, OVERPASS_CHUNK_CHECKPOINTS);
+      const collected = [];
+
+      for (let c = 0; c < chunks.length; c++) {
+        const elements = await fetchOverpassChunkElements(buildOverpassChunkQuery(chunks[c]));
+        if (elements) collected.push(...elements);
+        if (chunks.length > 1) {
+          setStatus(`3/4 OpenStreetMapから実在の建物群・森林・河川・住宅街を取得中... (${c + 1}/${chunks.length} 区間)`);
+        }
+      }
+
+      // マルチポリゴン（湖沼・大規模な土地利用）は疑似 way に展開してから統合
+      const expanded = [];
+      for (const el of collected) {
+        if (el.type === 'relation') {
+          expanded.push(...relationToPolygonElements(el));
+        } else {
+          expanded.push(el);
+        }
+      }
+      return dedupeOsmElements(expanded);
+    }
+
+    async function buildRealRouteWorld() {
+      const fromInput = document.getElementById('input-from').value.trim();
+      const viaInput = document.getElementById('input-via').value.trim();
+      const toInput = document.getElementById('input-to').value.trim();
+      if (!fromInput || !toInput) {
+        setStatus('出発地と目的地の両方を入力してください。', false, true);
+        return;
+      }
+
+      const btnBuild = document.getElementById('btn-build-drive');
+      btnBuild.disabled = true;
+      btnBuild.classList.add('opacity-60');
+
+      try {
+        const cacheKey = `${fromInput}|${viaInput}|${toInput}`;
+        if (searchedRouteCache.key !== cacheKey || searchedRouteCache.routes.length === 0) {
+          setStatus('1/4 出発地・目的地とルート候補を検索中...');
+          await searchRouteCandidates();
+        }
+
+        const { fromCoord, toCoord, routes, selectedIndex } = searchedRouteCache;
+        const route = routes[selectedIndex] || routes[0];
+        const coords = route.geometry.coordinates; // [lon, lat]
+
+        if (coords.length < 2) {
+          throw new Error('ルート座標が短すぎます。もう少し離れた地点を指定してください。');
+        }
+
+        // 全レグ（経由地含む）の各ステップ道路名を距離マッピング
+        const stepNames = [];
+        let accStepDist = 0;
+        if (route.legs) {
+          for (const leg of route.legs) {
+            for (const st of (leg.steps || [])) {
+              stepNames.push({
+                startDist: accStepDist,
+                endDist: accStepDist + st.distance,
+                name: st.name || st.ref || '一般道路',
+                isBridge: (st.name || '').includes('橋') || (st.name || '').includes('Bridge')
+              });
+              accStepDist += st.distance;
+            }
+          }
+        }
+
+        // 高精細 4m間隔で滑らかにリサンプリング（カーブ・坂道のポリゴン密度を3倍化）
+        const originLat = coords[0][1];
+        const originLon = coords[0][0];
+        const rawPts = [];
+        let totalDist = 0;
+
+        for (let i = 0; i < coords.length; i++) {
+          const [lon, lat] = coords[i];
+          if (i > 0) {
+            totalDist += haversineMeters(coords[i - 1][1], coords[i - 1][0], lat, lon);
+          }
+          const local = latLonToLocalMeters(lat, lon, originLat, originLon);
+          rawPts.push({ dist: totalDist, x: local.x, z: local.z, lat, lon });
+        }
+
+        const maxDriveDist = Math.min(totalDist, 35000);
+        const sampleInterval = 1.0; // 超高精細1mメッシュ間隔
+        const resampled = [];
+        let rawIdx = 0;
+
+        for (let d = 0; d <= maxDriveDist; d += sampleInterval) {
+          while (rawIdx < rawPts.length - 2 && rawPts[rawIdx + 1].dist < d) {
+            rawIdx++;
+          }
+          const p0 = rawPts[rawIdx];
+          const p1 = rawPts[rawIdx + 1];
+          const span = Math.max(0.0001, p1.dist - p0.dist);
+          const t = Math.max(0, Math.min(1, (d - p0.dist) / span));
+
+          const lat = p0.lat + (p1.lat - p0.lat) * t;
+          const lon = p0.lon + (p1.lon - p0.lon) * t;
+          const x = p0.x + (p1.x - p0.x) * t;
+          const z = p0.z + (p1.z - p0.z) * t;
+
+          let roadName = `${fromCoord.displayName} → ${toCoord.displayName}`;
+          let isBridge = false;
+          for (const sn of stepNames) {
+            if (d >= sn.startDist && d <= sn.endDist) {
+              if (sn.name) roadName = sn.name;
+              isBridge = sn.isBridge;
+              break;
+            }
+          }
+
+          resampled.push({ dist: d, x, y: 0, z, lat, lon, heading: 0, roadName, isBridge });
+        }
+
+        setStatus('2/4 国土地理・標高データから坂道と周辺地形メッシュを生成中...');
+        const elevProbeStep = Math.max(1, Math.floor(resampled.length / 240));
+        const elevProbes = [];
+        for (let i = 0; i < resampled.length; i += elevProbeStep) {
+          elevProbes.push(resampled[i]);
+        }
+        const elevValues = await fetchElevations(elevProbes);
+        const baseElev = elevValues[0] || 0;
+
+        // 標高を全サンプル点へ線形補間＆3点移動平均スムージング
+        const rawElevs = new Float32Array(resampled.length);
+        for (let i = 0; i < resampled.length; i++) {
+          const pIdx = Math.min(elevValues.length - 1, Math.floor(i / elevProbeStep));
+          const nIdx = Math.min(elevValues.length - 1, pIdx + 1);
+          const localT = (i % elevProbeStep) / elevProbeStep;
+          const rawY = (elevValues[pIdx] * (1 - localT) + elevValues[nIdx] * localT) - baseElev;
+          rawElevs[i] = Math.max(0.5, rawY * 1.2 + 1.2);
+        }
+        for (let i = 0; i < resampled.length; i++) {
+          const prev = rawElevs[Math.max(0, i - 1)];
+          const curr = rawElevs[i];
+          const next = rawElevs[Math.min(resampled.length - 1, i + 1)];
+          resampled[i].y = (prev + curr * 2 + next) * 0.25;
+        }
+
+        // 進行方向（heading）の計算
+        for (let i = 0; i < resampled.length; i++) {
+          const curr = resampled[i];
+          const next = resampled[Math.min(resampled.length - 1, i + 2)];
+          const prev = resampled[Math.max(0, i - 2)];
+          curr.heading = Math.atan2(next.x - prev.x, next.z - prev.z);
+        }
+
+        setStatus('3/4 OpenStreetMapから実在の建物群・森林・河川・住宅街を取得中...');
+        const osmElements = await fetchSurroundingsOverpass(resampled);
+
+        setStatus('4/4 高精細3Dポリゴン地形＆街並みワールドを構築中...');
+        routeData.samples = resampled;
+        appState.fromName = fromCoord.displayName;
+        appState.toName = toCoord.displayName;
+        appState.totalDistance = maxDriveDist;
+        appState.currentDist = 0;
+        appState.lateralOffset = 0;
+        appState.speedKmh = 45;
+        appState.hasRoute = true;
+        appState.driving = true;
+        appState.arrived = false;
+
+        rebuild3DRouteScene(osmElements, originLat, originLon);
+
+        document.getElementById('route-modal').classList.add('hidden');
+        document.getElementById('arrival-overlay').classList.add('hidden');
+        document.getElementById('btn-close-modal').classList.remove('hidden');
+        document.getElementById('route-status-box').classList.add('hidden');
+      } catch (err) {
+        setStatus(err.message || 'ルートデータの取得中にエラーが発生しました', false, true);
+      } finally {
+        btnBuild.disabled = false;
+        btnBuild.classList.remove('opacity-60');
+      }
+    }
+
+    // =========================================================================
+    // 4. Three.js 3D空間構築（実在カーブ道路・建物・木々・水辺・ゴールゲート）
+    // =========================================================================
+    function initThree() {
+      const container = document.getElementById('three-container');
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x52a8f2);
+      scene.fog = new THREE.FogExp2(0x8ec8fa, 0.0014);
+
+      camera = new THREE.PerspectiveCamera(56, container.clientWidth / container.clientHeight, 0.4, 1400);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      container.appendChild(renderer.domElement);
+
+      hemiLight = new THREE.HemisphereLight(0xb5dcff, 0x3b5238, 0.85);
+      scene.add(hemiLight);
+
+      sunLight = new THREE.DirectionalLight(0xfff8eb, 1.35);
+      sunLight.position.set(160, 240, 120);
+      scene.add(sunLight);
+
+      const gGeo = new THREE.PlaneGeometry(8000, 8000);
+      gGeo.rotateX(-Math.PI / 2);
+      const gMat = new THREE.MeshStandardMaterial({ color: 0x28422b, roughness: 0.95 });
+      groundPlane = new THREE.Mesh(gGeo, gMat);
+      groundPlane.position.y = -35;
+      scene.add(groundPlane);
+
+      routeWorldGroup = new THREE.Group();
+      scene.add(routeWorldGroup);
+
+      updateTimeLighting();
+    }
+
+    function rebuild3DRouteScene(osmElements, originLat, originLon) {
+      // 既存のルートメッシュをクリア
+      while (routeWorldGroup.children.length > 0) {
+        const child = routeWorldGroup.children[0];
+        if (child.geometry) child.geometry.dispose();
+        routeWorldGroup.remove(child);
+      }
+
+      const samples = routeData.samples;
+      if (samples.length < 2) return;
+
+      // 道路全区間に対して「指定座標(x, z)に半径marginのオブジェクトを置いても道路にはみ出さないか」判定
+      const roadHalf = 5.5;
+      function getRoadClearanceInfo(px, pz) {
+        let minDistSq = Infinity;
+        let nearestY = 0;
+        let nearestHeading = 0;
+        for (let i = 0; i < samples.length; i++) {
+          const dx = px - samples[i].x;
+          const dz = pz - samples[i].z;
+          const dSq = dx * dx + dz * dz;
+          if (dSq < minDistSq) {
+            minDistSq = dSq;
+            nearestY = samples[i].y;
+            nearestHeading = samples[i].heading;
+          }
+        }
+        return { dist: Math.sqrt(minDistSq), nearestY, nearestHeading };
+      }
+
+      // -----------------------------------------------------------------------
+      // 0. 河川ポリライン＆交差道路ポリラインの事前抽出（地形の川底掘り込みにも利用）
+      // -----------------------------------------------------------------------
+      const riverPaths = [];
+      const sideRoadPaths = [];
+      const seenGeomIds = new Set();
+
+      for (const el of osmElements) {
+        if (!el.geometry || el.geometry.length < 2 || seenGeomIds.has(el.id)) continue;
+        seenGeomIds.add(el.id);
+        const tags = el.tags || {};
+        const pts = el.geometry.map((g) => latLonToLocalMeters(g.lat, g.lon, originLat, originLon));
+
+        if (tags.waterway || tags.natural === 'water') {
+          // 閉じた水域ポリゴン（湖沼など）はリボンではなく面として描くため、ここでは扱わない
+          const gArr = el.geometry;
+          const isClosedWaterArea = tags.natural === 'water' && !tags.waterway && gArr.length > 3
+            && Math.abs(gArr[0].lat - gArr[gArr.length - 1].lat) < 1e-9
+            && Math.abs(gArr[0].lon - gArr[gArr.length - 1].lon) < 1e-9;
+          if (isClosedWaterArea) continue;
+          const width = tags.waterway === 'river' ? 14 : (tags.waterway === 'canal' ? 10 : 5.5);
+          riverPaths.push({ pts, width, name: tags.name || '' });
+        } else if (tags.highway) {
+          const hw = tags.highway;
+          const width = (hw === 'motorway' || hw === 'trunk' || hw === 'primary') ? 9.5
+            : (hw === 'secondary' || hw === 'tertiary') ? 7.5 : 5.2;
+          sideRoadPaths.push({ pts, width });
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // 0.5 ルート周辺を覆う連続3D地形メッシュ（細密ポリゴンで起伏・谷・丘を再現）
+      // -----------------------------------------------------------------------
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (let i = 0; i < samples.length; i += 3) {
+        const s = samples[i];
+        if (s.x < minX) minX = s.x;
+        if (s.x > maxX) maxX = s.x;
+        if (s.z < minZ) minZ = s.z;
+        if (s.z > maxZ) maxZ = s.z;
+      }
+      const padMargin = 380;
+      minX -= padMargin; maxX += padMargin;
+      minZ -= padMargin; maxZ += padMargin;
+
+      const terrainW = Math.max(400, maxX - minX);
+      const terrainD = Math.max(400, maxZ - minZ);
+      const segX = Math.min(420, Math.max(140, Math.round(terrainW / 7)));
+      const segZ = Math.min(420, Math.max(140, Math.round(terrainD / 7)));
+
+      const terrainGeo = new THREE.PlaneGeometry(terrainW, terrainD, segX, segZ);
+      terrainGeo.rotateX(-Math.PI / 2);
+      const tPos = terrainGeo.attributes.position;
+      const tColors = new Float32Array(tPos.count * 3);
+      const centerX = (minX + maxX) * 0.5;
+      const centerZ = (minZ + maxZ) * 0.5;
+
+      // 高速検索用に間引いたサンプル点配列
+      const coarseSamples = [];
+      for (let i = 0; i < samples.length; i += 6) coarseSamples.push(samples[i]);
+
+      // ポリラインを4m間隔に細分化してTerrainの起伏に滑らかに追従させるヘルパー
+      function subdividePolyline(pts, maxStep = 4.0) {
+        const out = [];
+        for (let i = 0; i < pts.length; i++) {
+          out.push(pts[i]);
+          if (i < pts.length - 1) {
+            const p0 = pts[i];
+            const p1 = pts[i + 1];
+            const d = Math.hypot(p1.x - p0.x, p1.z - p0.z);
+            const steps = Math.floor(d / maxStep);
+            for (let s = 1; s < steps; s++) {
+              const t = s / steps;
+              out.push({ x: p0.x + (p1.x - p0.x) * t, z: p0.z + (p1.z - p0.z) * t });
+            }
+          }
+        }
+        return out;
+      }
+
+      // 河川の代表点（川底掘り込み＆橋梁自動判定用）
+      const riverProbes = [];
+      for (const rp of riverPaths) {
+        rp.pts = subdividePolyline(rp.pts, 4.0);
+        for (let k = 0; k < rp.pts.length; k++) {
+          riverProbes.push({ x: rp.pts[k].x, z: rp.pts[k].z, r: rp.width * 0.85, name: rp.name });
+        }
+      }
+
+      // 交差道路の細分化＆主ルートとの交差点検出（白線・縁石の開口＆横断歩道設置用）
+      const intersectionPoints = [];
+      const trafficSignalNodes = [];
+      for (const el of osmElements) {
+        if (el.type === 'node' && el.tags && el.tags.highway === 'traffic_signals') {
+          trafficSignalNodes.push(latLonToLocalMeters(el.lat, el.lon, originLat, originLon));
+        }
+      }
+
+      for (const sr of sideRoadPaths) {
+        sr.pts = subdividePolyline(sr.pts, 4.0);
+        for (let k = 0; k < sr.pts.length; k++) {
+          const pt = sr.pts[k];
+          // 主ルートとの距離をチェック
+          let bestIdx = -1;
+          let bestD = Infinity;
+          for (let sIdx = 0; sIdx < samples.length; sIdx += 2) {
+            const d = Math.hypot(pt.x - samples[sIdx].x, pt.z - samples[sIdx].z);
+            if (d < bestD) {
+              bestD = d;
+              bestIdx = sIdx;
+            }
+          }
+          // 主ルートの路肩付近（4.5m〜13m）に脇道ノードがある場合、交差点として記録
+          if (bestIdx >= 0 && bestD >= 4.2 && bestD <= 13.5) {
+            const s = samples[bestIdx];
+            const rx = Math.cos(s.heading);
+            const rz = -Math.sin(s.heading);
+            const sideSign = ((pt.x - s.x) * rx + (pt.z - s.z) * rz) >= 0 ? 1 : -1;
+            const exists = intersectionPoints.some((ip) => Math.hypot(ip.x - s.x, ip.z - s.z) < 14 && ip.side === sideSign);
+            if (!exists) {
+              intersectionPoints.push({
+                sampleIdx: bestIdx,
+                x: s.x,
+                y: s.y,
+                z: s.z,
+                heading: s.heading,
+                side: sideSign,
+                width: sr.width
+              });
+            }
+          }
+        }
+      }
+
+      // 河川（高崎川など）と主ルートが交差する区間を自動検出し、橋梁（isBridge）フラグを付与
+      const bridgeSpans = [];
+      for (let i = 0; i < samples.length; i++) {
+        const s = samples[i];
+        for (let rIdx = 0; rIdx < riverProbes.length; rIdx++) {
+          const rp = riverProbes[rIdx];
+          if (Math.hypot(s.x - rp.x, s.z - rp.z) < rp.r + 7.5) {
+            s.isBridge = true;
+            if (rp.name && !s.roadName.includes('橋')) {
+              s.roadName = `${s.roadName}（${rp.name}橋梁）`;
+            }
+            break;
+          }
+        }
+      }
+      // 橋区間の前後にスムーズなアプローチ勾配（水面より+2.2m高い橋桁）を付与
+      for (let i = 0; i < samples.length; i++) {
+        if (samples[i].isBridge) {
+          let start = i;
+          while (i < samples.length && samples[i].isBridge) i++;
+          let end = i - 1;
+          bridgeSpans.push({ start, end });
+          const pad = 16;
+          for (let k = Math.max(0, start - pad); k <= Math.min(samples.length - 1, end + pad); k++) {
+            const t = k < start ? (k - (start - pad)) / pad : (k > end ? ((end + pad) - k) / pad : 1.0);
+            const smoothT = t * t * (3 - 2 * t);
+            samples[k].y += 2.2 * smoothT;
+            if (k >= start - 4 && k <= end + 4) samples[k].isBridge = true;
+          }
+        }
+      }
+
+      for (let i = 0; i < tPos.count; i++) {
+        const wx = tPos.getX(i) + centerX;
+        const wz = tPos.getZ(i) + centerZ;
+
+        // 最近傍ルート点の標高をベースに、遠方の丘陵起伏を合成
+        let bestDistSq = Infinity;
+        let baseY = 0;
+        for (let j = 0; j < coarseSamples.length; j++) {
+          const dx = wx - coarseSamples[j].x;
+          const dz = wz - coarseSamples[j].z;
+          const dSq = dx * dx + dz * dz;
+          if (dSq < bestDistSq) {
+            bestDistSq = dSq;
+            baseY = coarseSamples[j].y;
+          }
+        }
+        const dist = Math.sqrt(bestDistSq);
+        const ridge = (Math.sin(wx * 0.008) * Math.cos(wz * 0.008) + Math.sin((wx + wz) * 0.004)) * Math.min(26, Math.max(0, (dist - 40) * 0.08));
+
+        // 道路直下および周辺20mは確実に路面より低く下げて、緑地面が道路上に被さるのを完全防止
+        let roadClear = -0.35;
+        if (dist < 16) {
+          roadClear = -1.65;
+        } else if (dist < 26) {
+          roadClear = -1.65 + ((dist - 16) / 10) * 1.3;
+        }
+
+        // 河川（高崎川など）の流路下は川底として深く掘り下げる
+        let riverCarve = 0;
+        for (let rIdx = 0; rIdx < riverProbes.length; rIdx++) {
+          const rp = riverProbes[rIdx];
+          const rDist = Math.hypot(wx - rp.x, wz - rp.z);
+          if (rDist < rp.r + 8) {
+            riverCarve = Math.min(riverCarve, -3.2 * (1 - rDist / (rp.r + 8)));
+          }
+        }
+
+        const wy = baseY + ridge + roadClear + riverCarve;
+        tPos.setY(i, wy);
+
+        // 標高と距離に応じたナチュラルなポリゴン地形色
+        const shade = 0.92 + 0.08 * Math.sin(wx * 0.03 + wz * 0.03);
+        if (riverCarve < -0.6 || wy < 1.0) {
+          tColors[i * 3] = 0.14 * shade;
+          tColors[i * 3 + 1] = 0.28 * shade;
+          tColors[i * 3 + 2] = 0.24 * shade;
+        } else if (wy > 28) {
+          tColors[i * 3] = 0.22 * shade;
+          tColors[i * 3 + 1] = 0.30 * shade;
+          tColors[i * 3 + 2] = 0.20 * shade;
+        } else {
+          tColors[i * 3] = 0.17 * shade;
+          tColors[i * 3 + 1] = 0.33 * shade;
+          tColors[i * 3 + 2] = 0.18 * shade;
+        }
+      }
+      terrainGeo.setAttribute('color', new THREE.BufferAttribute(tColors, 3));
+      terrainGeo.computeVertexNormals();
+
+      const terrainMat = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        flatShading: true,
+        roughness: 0.95,
+        metalness: 0.0
+      });
+      const terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
+      terrainMesh.position.set(centerX, 0, centerZ);
+      routeWorldGroup.add(terrainMesh);
+
+      // -----------------------------------------------------------------------
+      // 0.8 実在河川（高崎川・鹿島川など）＆交差点・枝分かれ道路の3Dポリゴン描画
+      // -----------------------------------------------------------------------
+      function buildPolylineRibbonMesh(pts, halfW, yOffset, mat, isRiver = false) {
+        if (pts.length < 2) return null;
+        const pArr = [];
+        const idxArr = [];
+        for (let i = 0; i < pts.length; i++) {
+          const curr = pts[i];
+          const prev = pts[Math.max(0, i - 1)];
+          const next = pts[Math.min(pts.length - 1, i + 1)];
+          const heading = Math.atan2(next.x - prev.x, next.z - prev.z);
+          const rx = Math.cos(heading);
+          const rz = -Math.sin(heading);
+          const info = getRoadClearanceInfo(curr.x, curr.z);
+          // 川は橋桁より下（-2.4m）を流れ、交差道路は主ルート交差点で高さをピタリと合わせる
+          const py = isRiver ? (info.nearestY - 2.4) : (info.nearestY + yOffset);
+
+          pArr.push(curr.x - rx * halfW, py, curr.z - rz * halfW);
+          pArr.push(curr.x + rx * halfW, py, curr.z + rz * halfW);
+
+          if (i < pts.length - 1) {
+            const base = i * 2;
+            idxArr.push(base, base + 2, base + 1);
+            idxArr.push(base + 1, base + 2, base + 3);
+          }
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(pArr, 3));
+        geo.setIndex(idxArr);
+        geo.computeVertexNormals();
+        return new THREE.Mesh(geo, mat);
+      }
+
+      // 河川水面メッシュ（橋の下を流れる青い水面）
+      const riverSurfaceMat = new THREE.MeshStandardMaterial({
+        color: 0x0284c7,
+        emissive: 0x0369a1,
+        emissiveIntensity: 0.25,
+        roughness: 0.2,
+        metalness: 0.5,
+        side: THREE.DoubleSide
+      });
+      for (const rp of riverPaths) {
+        const rMesh = buildPolylineRibbonMesh(rp.pts, rp.width * 0.5, -2.4, riverSurfaceMat, true);
+        if (rMesh) routeWorldGroup.add(rMesh);
+      }
+
+      // 交差道路・脇道メッシュ（アスファルト＋両端白線付きで自然に交差点接続）
+      const sideRoadMat = new THREE.MeshStandardMaterial({
+        color: 0x1b222c,
+        roughness: 0.94,
+        metalness: 0.0,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+        side: THREE.DoubleSide
+      });
+      const sideEdgeMat = new THREE.MeshBasicMaterial({ color: 0xe2e8f0, side: THREE.DoubleSide });
+      for (const sr of sideRoadPaths) {
+        const srMesh = buildPolylineRibbonMesh(sr.pts, sr.width * 0.5, -0.01, sideRoadMat, false);
+        if (srMesh) routeWorldGroup.add(srMesh);
+        if (sr.width >= 6.5) {
+          const edgeMesh = buildPolylineRibbonMesh(sr.pts, sr.width * 0.5 + 0.22, -0.02, sideEdgeMat, false);
+          if (edgeMesh) routeWorldGroup.add(edgeMesh);
+        }
+      }
+
+      // 交差点の横断歩道（ゼブラゾーン）と信号機の配置
+      const zebraGeo = new THREE.BoxGeometry(0.55, 0.04, 2.6);
+      const zebraMat = new THREE.MeshBasicMaterial({ color: 0xf8fafc });
+      const poleGeo = new THREE.CylinderGeometry(0.14, 0.16, 6.2, 8);
+      const poleMat = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.5, roughness: 0.4 });
+      const sigBoxGeo = new THREE.BoxGeometry(1.6, 0.52, 0.42);
+      const sigBoxMat = new THREE.MeshStandardMaterial({ color: 0x1e293b });
+      const sigGreenMat = new THREE.MeshBasicMaterial({ color: 0x10b981 });
+
+      for (const ip of intersectionPoints) {
+        const rx = Math.cos(ip.heading);
+        const rz = -Math.sin(ip.heading);
+        const fx = Math.sin(ip.heading);
+        const fz = Math.cos(ip.heading);
+
+        // 脇道側の横断歩道ストライプ
+        for (let zIdx = -2; zIdx <= 2; zIdx++) {
+          const strip = new THREE.Mesh(zebraGeo, zebraMat);
+          strip.position.set(
+            ip.x + rx * ip.side * (roadHalf + 1.8) + fx * (zIdx * 1.1),
+            ip.y + 0.03,
+            ip.z + rz * ip.side * (roadHalf + 1.8) + fz * (zIdx * 1.1)
+          );
+          strip.rotation.y = ip.heading;
+          routeWorldGroup.add(strip);
+        }
+
+        // 主要交差点は信号機を設置
+        if (ip.width >= 6.5) {
+          const px = ip.x + rx * ip.side * (roadHalf + 0.9) - fx * (ip.width * 0.5 + 1.2);
+          const pz = ip.z + rz * ip.side * (roadHalf + 0.9) - fz * (ip.width * 0.5 + 1.2);
+          const pole = new THREE.Mesh(poleGeo, poleMat);
+          pole.position.set(px, ip.y + 3.1, pz);
+          const arm = new THREE.Mesh(sigBoxGeo, sigBoxMat);
+          arm.position.set(px - rx * ip.side * 1.6, ip.y + 5.6, pz - rz * ip.side * 1.6);
+          arm.rotation.y = ip.heading;
+          const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.32, 0.46), sigGreenMat);
+          lamp.position.set(px - rx * ip.side * 2.0, ip.y + 5.6, pz - rz * ip.side * 2.0);
+          lamp.rotation.y = ip.heading;
+          routeWorldGroup.add(pole, arm, lamp);
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // 1. 実在カーブ＆標高に沿った連続3D道路リボンメッシュ（1m高精細・交差点開口＆橋梁対応）
+      // -----------------------------------------------------------------------
+      const bandCount = 9;
+      const cols = bandCount * 2;
+      const vertCount = samples.length * cols;
+      const positions = new Float32Array(vertCount * 3);
+      const colors = new Float32Array(vertCount * 3);
+      const indices = [];
+
+      const bands = [
+        { x0: -roadHalf - 28,   x1: -roadHalf - 0.35, y0: -18.0, y1: 0.35,  type: 'slopeL' },
+        { x0: -roadHalf - 0.35, x1: -roadHalf,        y0: 0.35,  y1: 0.0,   type: 'curbL' },
+        { x0: -roadHalf,        x1: -roadHalf + 0.3,  y0: 0.02,  y1: 0.02,  type: 'whiteL' },
+        { x0: -roadHalf + 0.3,  x1: -0.15,            y0: 0.0,   y1: 0.0,   type: 'asphalt' },
+        { x0: -0.15,            x1: 0.15,             y0: 0.02,  y1: 0.02,  type: 'centerLine' },
+        { x0: 0.15,             x1: roadHalf - 0.3,   y0: 0.0,   y1: 0.0,   type: 'asphalt' },
+        { x0: roadHalf - 0.3,   x1: roadHalf,         y0: 0.02,  y1: 0.02,  type: 'whiteR' },
+        { x0: roadHalf,         x1: roadHalf + 0.35,  y0: 0.0,   y1: 0.35,  type: 'curbR' },
+        { x0: roadHalf + 0.35,  x1: roadHalf + 28,    y0: 0.35,  y1: -18.0, type: 'slopeR' }
+      ];
+
+      // 各サンプル点の左右交差点開口フラグを事前計算
+      const openLeft = new Uint8Array(samples.length);
+      const openRight = new Uint8Array(samples.length);
+      for (const ip of intersectionPoints) {
+        const halfOpen = Math.max(4, Math.ceil(ip.width * 0.65));
+        for (let k = Math.max(0, ip.sampleIdx - halfOpen); k <= Math.min(samples.length - 1, ip.sampleIdx + halfOpen); k++) {
+          if (ip.side < 0) openLeft[k] = 1;
+          else openRight[k] = 1;
+        }
+      }
+
+      for (let i = 0; i < samples.length; i++) {
+        const s = samples[i];
+        const rx = Math.cos(s.heading);
+        const rz = -Math.sin(s.heading);
+        const isDash = (Math.floor(i / 4) % 3) !== 0;
+
+        for (let b = 0; b < bandCount; b++) {
+          const band = bands[b];
+          let r = 0.12, g = 0.13, bl = 0.15;
+          let yVal0 = s.y + band.y0;
+          let yVal1 = s.y + band.y1;
+
+          if (band.type === 'slopeL' || band.type === 'slopeR') {
+            if (s.isBridge) {
+              // 橋の上では緑の法面を消して橋桁の下に川が見えるようにする
+              r = 0.45; g = 0.48; bl = 0.54;
+              yVal0 = s.y - 0.8;
+              yVal1 = s.y + 0.15;
+            } else {
+              r = 0.16; g = 0.29; bl = 0.17;
+            }
+          } else if (band.type === 'curbL') {
+            if (openLeft[i]) {
+              yVal0 = s.y; yVal1 = s.y; // 交差点開口部は縁石をフラット化
+            } else {
+              r = s.isBridge ? 0.72 : 0.55; g = s.isBridge ? 0.76 : 0.58; bl = s.isBridge ? 0.82 : 0.62;
+            }
+          } else if (band.type === 'curbR') {
+            if (openRight[i]) {
+              yVal0 = s.y; yVal1 = s.y;
+            } else {
+              r = s.isBridge ? 0.72 : 0.55; g = s.isBridge ? 0.76 : 0.58; bl = s.isBridge ? 0.82 : 0.62;
+            }
+          } else if (band.type === 'whiteL') {
+            if (!openLeft[i]) { r = 0.92; g = 0.94; bl = 0.96; }
+          } else if (band.type === 'whiteR') {
+            if (!openRight[i]) { r = 0.92; g = 0.94; bl = 0.96; }
+          } else if (band.type === 'centerLine' && isDash && !openLeft[i] && !openRight[i]) {
+            r = 0.96; g = 0.78; bl = 0.22;
+          }
+
+          const idx0 = (i * cols + b * 2) * 3;
+          positions[idx0] = s.x + rx * band.x0;
+          positions[idx0 + 1] = yVal0;
+          positions[idx0 + 2] = s.z + rz * band.x0;
+          colors[idx0] = r; colors[idx0 + 1] = g; colors[idx0 + 2] = bl;
+
+          const idx1 = idx0 + 3;
+          positions[idx1] = s.x + rx * band.x1;
+          positions[idx1 + 1] = yVal1;
+          positions[idx1 + 2] = s.z + rz * band.x1;
+          colors[idx1] = r; colors[idx1 + 1] = g; colors[idx1 + 2] = bl;
+        }
+      }
+
+      for (let i = 0; i < samples.length - 1; i++) {
+        for (let b = 0; b < bandCount; b++) {
+          // 橋の上では斜面の三角形をスキップして川が見えるようにする
+          if (samples[i].isBridge && (b === 0 || b === bandCount - 1)) continue;
+          const a = i * cols + b * 2;
+          const c = a + 1;
+          const d = (i + 1) * cols + b * 2;
+          const e = d + 1;
+          indices.push(a, d, c);
+          indices.push(c, d, e);
+        }
+      }
+
+      const roadGeo = new THREE.BufferGeometry();
+      roadGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      roadGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      roadGeo.setIndex(indices);
+      roadGeo.computeVertexNormals();
+
+      const roadMat = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.94,
+        metalness: 0.0,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+        side: THREE.DoubleSide
+      });
+      const roadMesh = new THREE.Mesh(roadGeo, roadMat);
+      routeWorldGroup.add(roadMesh);
+
+      // -----------------------------------------------------------------------
+      // 1.5 高崎川などの橋梁3D構造物（橋桁・欄干・アーチ支柱・親柱）
+      // -----------------------------------------------------------------------
+      const bridgeGirderMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.6, metalness: 0.3 });
+      const bridgeRailMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.4, metalness: 0.5 });
+      const bridgePostMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.5 });
+
+      for (const span of bridgeSpans) {
+        for (let i = span.start; i <= span.end; i += 2) {
+          const s = samples[i];
+          const rx = Math.cos(s.heading);
+          const rz = -Math.sin(s.heading);
+
+          // 橋桁ビーム
+          const girder = new THREE.Mesh(new THREE.BoxGeometry(roadHalf * 2 + 1.2, 0.9, 2.4), bridgeGirderMat);
+          girder.position.set(s.x, s.y - 0.45, s.z);
+          girder.rotation.y = s.heading;
+          routeWorldGroup.add(girder);
+
+          // 左右の青い高欄（欄干）
+          for (const side of [-1, 1]) {
+            const rail = new THREE.Mesh(new THREE.BoxGeometry(0.28, 1.15, 2.4), bridgeRailMat);
+            rail.position.set(s.x + rx * side * (roadHalf + 0.35), s.y + 0.58, s.z + rz * side * (roadHalf + 0.35));
+            rail.rotation.y = s.heading;
+            routeWorldGroup.add(rail);
+          }
+
+          // 川底へ伸びるコンクリート橋脚
+          if ((i - span.start) % 10 === 0) {
+            for (const side of [-0.65, 0.65]) {
+              const pier = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.95, 6.0, 10), bridgeGirderMat);
+              pier.position.set(s.x + rx * side * roadHalf, s.y - 3.2, s.z + rz * side * roadHalf);
+              routeWorldGroup.add(pier);
+            }
+          }
+        }
+
+        // 橋の入り口・出口の親柱（橋名標柱）
+        for (const endIdx of [span.start, span.end]) {
+          const s = samples[endIdx];
+          const rx = Math.cos(s.heading);
+          const rz = -Math.sin(s.heading);
+          for (const side of [-1, 1]) {
+            const post = new THREE.Mesh(new THREE.BoxGeometry(0.75, 2.1, 0.75), bridgePostMat);
+            post.position.set(s.x + rx * side * (roadHalf + 0.5), s.y + 1.05, s.z + rz * side * (roadHalf + 0.5));
+            post.rotation.y = s.heading;
+            routeWorldGroup.add(post);
+          }
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // 2. OpenStreetMap 実在建物・土地利用ポリゴン・水域の3D配置
+      // -----------------------------------------------------------------------
+      const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+      const roofGeo = new THREE.ConeGeometry(0.72, 1, 4);
+      roofGeo.rotateY(Math.PI * 0.25);
+      const coneGeo = new THREE.ConeGeometry(0.6, 1, 7);
+      const cylGeo = new THREE.CylinderGeometry(0.18, 0.25, 1, 6);
+
+      const bMatCity = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.55, metalness: 0.25, side: THREE.DoubleSide });
+      const bMatWarm = new THREE.MeshStandardMaterial({ color: 0x78716c, roughness: 0.78, side: THREE.DoubleSide });
+      const bMatHouse = new THREE.MeshStandardMaterial({ color: 0xd6d3d1, roughness: 0.85, side: THREE.DoubleSide });
+      const roofTileMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.75 });
+      const treeLeafMat = new THREE.MeshStandardMaterial({ color: 0x1e5631, roughness: 0.85, flatShading: true });
+      const treeTrunkMat = new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.9 });
+      const fieldMat = new THREE.MeshStandardMaterial({ color: 0x4d7c0f, roughness: 0.95, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+      const meadowMat = new THREE.MeshStandardMaterial({ color: 0x65a30d, roughness: 0.95, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+      const forestMat = new THREE.MeshStandardMaterial({ color: 0x14532d, roughness: 0.95, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+      const residentialMat = new THREE.MeshStandardMaterial({ color: 0x8f8672, roughness: 0.97, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+      const industrialMat = new THREE.MeshStandardMaterial({ color: 0x6b7280, roughness: 0.95, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+      const commercialMat = new THREE.MeshStandardMaterial({ color: 0x7d7468, roughness: 0.95, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+      const waterPolyMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, emissive: 0x0369a1, emissiveIntensity: 0.25, roughness: 0.2, metalness: 0.5, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+
+      // 高速な最近傍ルート点ルックアップ（地形追従配置用）
+      const lookupGround = createNearestSampleLookup(samples, 4, 24);
+
+      const seenIds = new Set();
+      const placedCoords = [];
+
+      // --- 2.0 土地利用・水域ポリゴンの抽出（実形状のまま地面に描く） ---
+      const landPolys = []; // { kind, ring:[{x,z}], cx, cz, minX, maxX, minZ, maxZ, id }
+      function classifyLandKind(tags) {
+        if (tags.natural === 'water') return 'water';
+        if (tags.natural === 'wood') return 'forest';
+        const lu = tags.landuse;
+        if (lu === 'farmland') return 'farmland';
+        if (lu === 'meadow') return 'meadow';
+        if (lu === 'forest') return 'forest';
+        if (lu === 'residential') return 'residential';
+        if (lu === 'industrial') return 'industrial';
+        if (lu === 'commercial' || lu === 'retail') return 'commercial';
+        return null;
+      }
+
+      for (const el of osmElements) {
+        const tags = el.tags || {};
+        if (tags.building) continue;
+        const kind = classifyLandKind(tags);
+        if (!kind) continue;
+        if (!el.geometry || el.geometry.length < 4) continue;
+        const gArr = el.geometry;
+        const closed = Math.abs(gArr[0].lat - gArr[gArr.length - 1].lat) < 1e-9
+          && Math.abs(gArr[0].lon - gArr[gArr.length - 1].lon) < 1e-9;
+        if (!closed) continue;
+        if (seenIds.has(el.id)) continue;
+        seenIds.add(el.id);
+
+        const ring = [];
+        for (let gi = 0; gi < gArr.length - 1; gi++) {
+          ring.push(latLonToLocalMeters(gArr[gi].lat, gArr[gi].lon, originLat, originLon));
+        }
+        if (ring.length < 3) continue;
+        let cx = 0, cz = 0, minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+        for (const p of ring) {
+          cx += p.x; cz += p.z;
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.z < minZ) minZ = p.z;
+          if (p.z > maxZ) maxZ = p.z;
+        }
+        landPolys.push({ kind, ring, cx: cx / ring.length, cz: cz / ring.length, minX, maxX, minZ, maxZ, id: el.id });
+      }
+
+      const waterPolys = landPolys.filter((p) => p.kind === 'water');
+      function insideAnyPoly(x, z, polys) {
+        for (const p of polys) {
+          if (x < p.minX || x > p.maxX || z < p.minZ || z > p.maxZ) continue;
+          if (pointInPolygonXZ(x, z, p.ring)) return true;
+        }
+        return false;
+      }
+
+      // ポリゴンを地面に平らに描く（頂点ごとに最寄りルート標高へ追従させる）
+      function buildFlatPolygonMesh(ring, yOffset, mat) {
+        const shape = new THREE.Shape();
+        for (let i = 0; i < ring.length; i++) {
+          const sx = ring[i].x;
+          const sy = -ring[i].z;
+          if (i === 0) shape.moveTo(sx, sy);
+          else shape.lineTo(sx, sy);
+        }
+        const geo = new THREE.ShapeGeometry(shape);
+        geo.rotateX(-Math.PI / 2);
+        const posAttr = geo.attributes.position;
+        for (let i = 0; i < posAttr.count; i++) {
+          const vx = posAttr.getX(i);
+          const vz = posAttr.getZ(i);
+          posAttr.setY(i, lookupGround(vx, vz).nearestY + yOffset);
+        }
+        geo.computeVertexNormals();
+        return new THREE.Mesh(geo, mat);
+      }
+
+      const landMatByKind = {
+        farmland: fieldMat,
+        meadow: meadowMat,
+        forest: forestMat,
+        residential: residentialMat,
+        industrial: industrialMat,
+        commercial: commercialMat,
+        water: waterPolyMat
+      };
+      // 水域を最後に描くため water 以外 → water の順に処理
+      const sortedPolys = landPolys.slice().sort((a, b) => (a.kind === 'water' ? 1 : 0) - (b.kind === 'water' ? 1 : 0));
+      for (const poly of sortedPolys) {
+        const cInfo = lookupGround(poly.cx, poly.cz);
+        if (cInfo.dist > 900) continue;
+        const yOff = poly.kind === 'water' ? -0.55 : -0.3;
+        routeWorldGroup.add(buildFlatPolygonMesh(poly.ring, yOff, landMatByKind[poly.kind]));
+      }
+
+      // --- 2.1 森林ポリゴン内側への樹木散布（ポリゴン内判定つき） ---
+      for (const poly of landPolys) {
+        if (poly.kind !== 'forest') continue;
+        const area = (poly.maxX - poly.minX) * (poly.maxZ - poly.minZ);
+        const treeCount = Math.max(3, Math.min(48, Math.floor(area / 850)));
+        let seed = (Math.abs(poly.id) % 2147483646) + 1;
+        const rand = () => {
+          seed = (seed * 48271) % 2147483647;
+          return seed / 2147483647;
+        };
+        let placedTrees = 0;
+        let attempts = 0;
+        while (placedTrees < treeCount && attempts < treeCount * 14) {
+          attempts++;
+          const tx = poly.minX + rand() * (poly.maxX - poly.minX);
+          const tz = poly.minZ + rand() * (poly.maxZ - poly.minZ);
+          if (!pointInPolygonXZ(tx, tz, poly.ring)) continue;
+          const tInfo = lookupGround(tx, tz);
+          if (tInfo.dist < roadHalf + 6.5) continue;
+          if (insideAnyPoly(tx, tz, waterPolys)) continue;
+          const inRiver = riverProbes.some((rp) => Math.hypot(tx - rp.x, tz - rp.z) < rp.r + 3.0);
+          if (inRiver) continue;
+          const th = 7 + ((Math.abs(poly.id) + placedTrees) % 7);
+          const trunk = new THREE.Mesh(cylGeo, treeTrunkMat);
+          trunk.position.set(tx, tInfo.nearestY + 1.8, tz);
+          trunk.scale.set(1, 3.6, 1);
+          const crown = new THREE.Mesh(coneGeo, treeLeafMat);
+          crown.position.set(tx, tInfo.nearestY + 2.8 + th * 0.5, tz);
+          crown.scale.set(5.2, th, 5.2);
+          routeWorldGroup.add(trunk, crown);
+          placedCoords.push({ x: tx, z: tz });
+          placedTrees++;
+        }
+      }
+
+      // --- 2.2 建物（フットプリント押し出し。ジオメトリ無しは中心点ボックスにフォールバック） ---
+      const MAX_BUILDINGS = 1500;
+      const buildingCandidates = [];
+      for (const el of osmElements) {
+        if (seenIds.has(el.id)) continue;
+        const tags = el.tags || {};
+        if (!tags.building) continue;
+        seenIds.add(el.id);
+
+        let cx = null, cz = null;
+        if (el.geometry && el.geometry.length >= 2) {
+          let sx = 0, sz = 0;
+          for (const g of el.geometry) {
+            const p = latLonToLocalMeters(g.lat, g.lon, originLat, originLon);
+            sx += p.x; sz += p.z;
+          }
+          cx = sx / el.geometry.length;
+          cz = sz / el.geometry.length;
+        } else {
+          const center = el.center || (el.lat !== undefined && el.lon !== undefined ? { lat: el.lat, lon: el.lon } : null);
+          if (!center) continue;
+          const p = latLonToLocalMeters(center.lat, center.lon, originLat, originLon);
+          cx = p.x; cz = p.z;
+        }
+        const info = lookupGround(cx, cz);
+        if (info.dist > 380) continue;
+        buildingCandidates.push({ el, tags, cx, cz, info });
+      }
+      buildingCandidates.sort((a, b) => a.info.dist - b.info.dist);
+
+      function buildingHeight(tags, id) {
+        const levels = parseInt(tags['building:levels'] || '0', 10);
+        if (levels > 0) return levels * 3.2;
+        const b = tags.building;
+        const jitter = (Math.abs(id) % 3) * 0.7;
+        if (b === 'apartments') return 11 + jitter;
+        if (b === 'commercial' || b === 'retail' || b === 'office') return 10.5 + jitter;
+        if (b === 'industrial' || b === 'warehouse') return 7.5 + jitter;
+        if (b === 'house' || b === 'detached' || b === 'residential' || b === 'farm') return 5.8 + jitter;
+        return 6.4 + jitter;
+      }
+
+      for (const cand of buildingCandidates.slice(0, MAX_BUILDINGS)) {
+        const { el, tags, cx, cz, info } = cand;
+        const h = buildingHeight(tags, el.id);
+        const isCommercial = tags.building === 'commercial' || tags.building === 'retail' || tags.building === 'office' || tags.building === 'apartments';
+        const mat = h > 16 ? bMatCity : (isCommercial ? bMatWarm : bMatHouse);
+        const baseY = info.nearestY - 0.3;
+
+        // 水域ポリゴン内・河川近傍の建物は除外
+        if (insideAnyPoly(cx, cz, waterPolys)) continue;
+        const inRiver = riverProbes.some((rp) => Math.hypot(cx - rp.x, cz - rp.z) < rp.r + 4.0);
+        if (inRiver) continue;
+
+        let footprintRing = null;
+        if (el.geometry && el.geometry.length >= 3) {
+          const ring = el.geometry.map((g) => latLonToLocalMeters(g.lat, g.lon, originLat, originLon));
+          if (ring.length > 3) {
+            const f = ring[0], l = ring[ring.length - 1];
+            if (Math.abs(f.x - l.x) < 0.01 && Math.abs(f.z - l.z) < 0.01) ring.pop();
+          }
+          if (ring.length >= 3) footprintRing = ring;
+        }
+
+        if (footprintRing) {
+          // 輪郭の全頂点が道路クリアランスを満たす場合のみ描画
+          let clear = true;
+          for (const p of footprintRing) {
+            if (lookupGround(p.x, p.z).dist < roadHalf + 0.8) { clear = false; break; }
+          }
+          if (!clear) continue;
+
+          const shape = new THREE.Shape();
+          for (let i = 0; i < footprintRing.length; i++) {
+            const sx = footprintRing[i].x;
+            const sy = -footprintRing[i].z;
+            if (i === 0) shape.moveTo(sx, sy);
+            else shape.lineTo(sx, sy);
+          }
+          const extrudeGeo = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false });
+          extrudeGeo.rotateX(-Math.PI / 2);
+          const mesh = new THREE.Mesh(extrudeGeo, mat);
+          mesh.position.y = baseY;
+          routeWorldGroup.add(mesh);
+
+          // 低層建物には屋根を載せる（輪郭のバウンディングボックスに合わせる）
+          if (h <= 12) {
+            let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+            for (const p of footprintRing) {
+              if (p.x < minX) minX = p.x;
+              if (p.x > maxX) maxX = p.x;
+              if (p.z < minZ) minZ = p.z;
+              if (p.z > maxZ) maxZ = p.z;
+            }
+            const roof = new THREE.Mesh(roofGeo, roofTileMat);
+            roof.position.set(cx, baseY + h + 0.9, cz);
+            roof.scale.set(Math.max(2, (maxX - minX) * 1.04), 2.3, Math.max(2, (maxZ - minZ) * 1.04));
+            routeWorldGroup.add(roof);
+          }
+          placedCoords.push({ x: cx, z: cz });
+        } else {
+          // フォールバック: 中心点ボックス（寸法は種別ベースの既定値に抑制）
+          const w = isCommercial ? 12.5 : 8.4;
+          const d = isCommercial ? 12.5 : 9.0;
+          const footprintRadius = Math.hypot(w, d) * 0.5;
+          if (info.dist < roadHalf + footprintRadius + 2.8) continue;
+          const mesh = new THREE.Mesh(boxGeo, mat);
+          mesh.position.set(cx, baseY + h * 0.5, cz);
+          mesh.scale.set(w, h, d);
+          mesh.rotation.y = info.nearestHeading;
+          routeWorldGroup.add(mesh);
+          if (h <= 12) {
+            const roof = new THREE.Mesh(roofGeo, roofTileMat);
+            roof.position.set(cx, baseY + h + 0.9, cz);
+            roof.scale.set(w * 1.06, 2.3, d * 1.06);
+            roof.rotation.y = info.nearestHeading;
+            routeWorldGroup.add(roof);
+          }
+          placedCoords.push({ x: cx, z: cz });
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // 2.5 沿道の隙間を埋める補完（実ポリゴンで土地利用が分かる場所には置かない）
+      // -----------------------------------------------------------------------
+      for (let i = 6; i < samples.length - 6; i += 6) {
+        const s = samples[i];
+        if (s.isBridge) continue;
+        const rx = Math.cos(s.heading);
+        const rz = -Math.sin(s.heading);
+
+        for (const side of [-1, 1]) {
+          const offset = 15.5 + ((i * 7 + (side > 0 ? 3 : 0)) % 5) * 3.8;
+          const px = s.x + rx * side * offset;
+          const pz = s.z + rz * side * offset;
+
+          // 実データの土地利用ポリゴン内（田畑・草地・水域・森林・住宅地など）には補完物を置かない
+          if (insideAnyPoly(px, pz, landPolys)) continue;
+
+          const info = lookupGround(px, pz);
+          if (info.dist < roadHalf + 8.5) continue;
+          const inRiver = riverProbes.some((rp) => Math.hypot(px - rp.x, pz - rp.z) < rp.r + 5.0);
+          if (inRiver) continue;
+
+          const hasNearObj = placedCoords.some((p) => Math.hypot(p.x - px, p.z - pz) < 13);
+          if (hasNearObj) continue;
+
+          // データの無い場所のみ、従来より間引いて配置（住宅は疎ら・街路樹も控えめに）
+          let seedVal = (i * 2654435761 + (side > 0 ? 40503 : 0)) >>> 0;
+          seedVal = (seedVal ^ (seedVal >>> 13)) >>> 0;
+          const hash01 = (seedVal % 1000) / 1000;
+          if (hash01 < 0.045) {
+            const h = 6.0 + (i % 3) * 2.2;
+            const house = new THREE.Mesh(boxGeo, side > 0 ? bMatHouse : bMatWarm);
+            house.position.set(px, info.nearestY + h * 0.5 - 0.3, pz);
+            house.scale.set(8.5, h, 9.5);
+            house.rotation.y = s.heading;
+            const roof = new THREE.Mesh(roofGeo, roofTileMat);
+            roof.position.set(px, info.nearestY + h + 0.85, pz);
+            roof.scale.set(9.0, 2.2, 10.0);
+            roof.rotation.y = s.heading;
+            routeWorldGroup.add(house, roof);
+            placedCoords.push({ x: px, z: pz });
+          } else if (hash01 < 0.24) {
+            const trunk = new THREE.Mesh(cylGeo, treeTrunkMat);
+            trunk.position.set(px, info.nearestY + 1.8, pz);
+            trunk.scale.set(0.85, 3.6, 0.85);
+            const crown = new THREE.Mesh(coneGeo, treeLeafMat);
+            crown.position.set(px, info.nearestY + 5.8, pz);
+            crown.scale.set(4.5, 7.2, 4.5);
+            routeWorldGroup.add(trunk, crown);
+            placedCoords.push({ x: px, z: pz });
+          }
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // 3. ゴール地点の到着アーチゲート
+      // -----------------------------------------------------------------------
+      const goalSample = samples[samples.length - 1];
+      const goalGroup = new THREE.Group();
+      goalGroup.position.set(goalSample.x, goalSample.y, goalSample.z);
+      goalGroup.rotation.y = goalSample.heading;
+
+      const archMat = new THREE.MeshBasicMaterial({ color: 0x10b981 });
+      const pL = new THREE.Mesh(boxGeo, archMat);
+      pL.position.set(-6.2, 5, 0);
+      pL.scale.set(0.8, 10, 0.8);
+      const pR = new THREE.Mesh(boxGeo, archMat);
+      pR.position.set(6.2, 5, 0);
+      pR.scale.set(0.8, 10, 0.8);
+      const topBar = new THREE.Mesh(boxGeo, archMat);
+      topBar.position.set(0, 9.8, 0);
+      topBar.scale.set(13.2, 1.2, 0.9);
+      goalGroup.add(pL, pR, topBar);
+      routeWorldGroup.add(goalGroup);
+    }
+
+    // =========================================================================
+    // 5. 時間帯ライティング＆更新ループ
+    // =========================================================================
+    function updateTimeLighting() {
+      const t = appState.timeOfDay % 24;
+      let skyHex = 0x4fa3ff;
+      let fogHex = 0x8ec8ff;
+      let sunInt = 1.35;
+
+      if (t < 5.5 || t >= 19.5) {
+        skyHex = 0x070d1f;
+        fogHex = 0x0b132b;
+        sunInt = 0.35;
+      } else if (t < 7.5) {
+        skyHex = 0xf4845f;
+        fogHex = 0xf7b267;
+        sunInt = 1.05;
+      } else if (t >= 17.0 && t < 19.5) {
+        skyHex = 0xe85d3f;
+        fogHex = 0xf2845c;
+        sunInt = 1.05;
+      }
+
+      scene.background.setHex(skyHex);
+      scene.fog.color.setHex(fogHex);
+      sunLight.intensity = sunInt;
+
+      const hh = String(Math.floor(t)).padStart(2, '0');
+      const mm = String(Math.floor((t - Math.floor(t)) * 60)).padStart(2, '0');
+      document.getElementById('btn-time').textContent = `TIME: ${hh}:${mm}`;
+    }
+
+    function updateDriveSimulation(dt) {
+      if (!appState.hasRoute || !appState.driving || appState.arrived) return;
+
+      // オートクルーズまたは手動運転
+      if (appState.autoCruise) {
+        if (keys.left || keys.right || keys.down) {
+          appState.autoCruise = false;
+          document.getElementById('btn-cruise').textContent = 'CRUISE: OFF';
+        } else {
+          // 快適なクルーズ速度（約65km/h × 速度倍率）
+          const targetSpd = 65 * appState.speedMultiplier;
+          appState.speedKmh += (targetSpd - appState.speedKmh) * Math.min(1, dt * 2.5);
+          // 日本の左側通行に合わせてやや左車線寄り（-1.8m）を走行
+          appState.lateralOffset += (-1.8 - appState.lateralOffset) * Math.min(1, dt * 3.0);
+          appState.steerAngle *= 0.85;
+        }
+      } else {
+        const throttle = keys.up ? 1 : 0;
+        const brake = keys.down ? 1 : 0;
+        const steer = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+
+        if (throttle > 0) {
+          appState.speedKmh = Math.min(160 * appState.speedMultiplier, appState.speedKmh + 55 * dt);
+        } else if (brake > 0) {
+          appState.speedKmh = Math.max(0, appState.speedKmh - 110 * dt);
+        } else {
+          appState.speedKmh = Math.max(0, appState.speedKmh - 15 * dt);
+        }
+
+        appState.steerAngle += (steer - appState.steerAngle) * Math.min(1, dt * 10);
+        appState.lateralOffset += appState.steerAngle * 9.5 * (Math.min(1, appState.speedKmh / 30)) * dt;
+        appState.lateralOffset = Math.max(-4.3, Math.min(4.3, appState.lateralOffset));
+      }
+
+      // 走行距離の更新
+      appState.currentDist += (appState.speedKmh / 3.6) * dt;
+
+      if (appState.currentDist >= appState.totalDistance) {
+        appState.currentDist = appState.totalDistance;
+        appState.arrived = true;
+        appState.driving = false;
+        showArrivalModal();
+      }
+    }
+
+    function updateCameraPose() {
+      const curr = sampleRouteAtDistance(appState.currentDist);
+      const ahead = sampleRouteAtDistance(Math.min(appState.totalDistance, appState.currentDist + 24));
+
+      const rx = Math.cos(curr.heading);
+      const rz = -Math.sin(curr.heading);
+
+      const camX = curr.x + rx * appState.lateralOffset;
+      const camY = curr.y + 1.55;
+      const camZ = curr.z + rz * appState.lateralOffset;
+
+      const arx = Math.cos(ahead.heading);
+      const arz = -Math.sin(ahead.heading);
+      const lookX = ahead.x + arx * appState.lateralOffset * 0.7;
+      const lookY = ahead.y + 1.25;
+      const lookZ = ahead.z + arz * appState.lateralOffset * 0.7;
+
+      camera.position.set(camX, camY, camZ);
+      camera.lookAt(lookX, lookY, lookZ);
+
+      if (groundPlane) {
+        groundPlane.position.set(camX, -35, camZ);
+      }
+    }
+
+    // =========================================================================
+    // 6. コックピット＆カーナビミニマップHUD描画
+    // =========================================================================
+    function drawHUD() {
+      if (!hudCtx || !hudCanvas) return;
+      const w = hudCanvas.width;
+      const h = hudCanvas.height;
+      hudCtx.clearRect(0, 0, w, h);
+
+      if (!appState.hasRoute) return;
+
+      const curr = sampleRouteAtDistance(appState.currentDist);
+      const remainKm = Math.max(0, (appState.totalDistance - appState.currentDist) / 1000).toFixed(2);
+      const progress = Math.min(1, appState.currentDist / Math.max(1, appState.totalDistance));
+
+      // -----------------------------------------------------------------------
+      // 上部中央：ルート進行バー＆現在の通過道路名
+      // -----------------------------------------------------------------------
+      const barW = Math.min(440, w * 0.78);
+      const bx = (w - barW) * 0.5;
+      const by = w < 768 ? 82 : 52;
+
+      hudCtx.fillStyle = 'rgba(2, 6, 23, 0.78)';
+      hudCtx.beginPath();
+      hudCtx.roundRect(bx - 10, by - 6, barW + 20, 48, 12);
+      hudCtx.fill();
+
+      hudCtx.font = 'bold 12px "Noto Sans JP", sans-serif';
+      hudCtx.fillStyle = '#38bdf8';
+      hudCtx.textAlign = 'left';
+      hudCtx.fillText(`現在地：${curr.roadName}`, bx, by + 11);
+
+      hudCtx.font = 'bold 11px "Share Tech Mono", monospace';
+      hudCtx.fillStyle = '#34d399';
+      hudCtx.textAlign = 'right';
+      hudCtx.fillText(`残り ${remainKm} km`, bx + barW, by + 11);
+
+      // プログレスバー
+      hudCtx.fillStyle = 'rgba(30, 41, 59, 0.9)';
+      hudCtx.fillRect(bx, by + 20, barW, 7);
+      hudCtx.fillStyle = '#38bdf8';
+      hudCtx.fillRect(bx, by + 20, barW * progress, 7);
+
+      hudCtx.font = '10px "Noto Sans JP", sans-serif';
+      hudCtx.fillStyle = '#cbd5e1';
+      hudCtx.textAlign = 'left';
+      hudCtx.fillText(`${appState.fromName} → ${appState.toName}`, bx, by + 38);
+
+      // -----------------------------------------------------------------------
+      // 右下（PC）／右上（スマホ）：ルート全体ミニマップ＆現在位置マーカー
+      // -----------------------------------------------------------------------
+      const mapSize = w < 640 ? 92 : 124;
+      const mx = w - mapSize - 16;
+      const my = w < 640 ? 140 : h - mapSize - 105;
+
+      hudCtx.fillStyle = 'rgba(2, 6, 23, 0.82)';
+      hudCtx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
+      hudCtx.lineWidth = 1.5;
+      hudCtx.beginPath();
+      hudCtx.roundRect(mx, my, mapSize, mapSize, 14);
+      hudCtx.fill();
+      hudCtx.stroke();
+
+      const samples = routeData.samples;
+      if (samples.length > 1) {
+        let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+        for (const s of samples) {
+          if (s.x < minX) minX = s.x;
+          if (s.x > maxX) maxX = s.x;
+          if (s.z < minZ) minZ = s.z;
+          if (s.z > maxZ) maxZ = s.z;
+        }
+        const span = Math.max(100, maxX - minX, maxZ - minZ);
+        const pad = 16;
+        const drawArea = mapSize - pad * 2;
+        const cx = (minX + maxX) * 0.5;
+        const cz = (minZ + maxZ) * 0.5;
+
+        const toMapX = (wx) => mx + mapSize * 0.5 + ((wx - cx) / span) * drawArea;
+        const toMapY = (wz) => my + mapSize * 0.5 + ((wz - cz) / span) * drawArea;
+
+        // ルート軌跡ライン
+        hudCtx.strokeStyle = '#38bdf8';
+        hudCtx.lineWidth = 2.5;
+        hudCtx.beginPath();
+        for (let i = 0; i < samples.length; i += 2) {
+          const px = toMapX(samples[i].x);
+          const py = toMapY(samples[i].z);
+          if (i === 0) hudCtx.moveTo(px, py);
+          else hudCtx.lineTo(px, py);
+        }
+        hudCtx.stroke();
+
+        // ゴールピン
+        const last = samples[samples.length - 1];
+        hudCtx.fillStyle = '#10b981';
+        hudCtx.beginPath();
+        hudCtx.arc(toMapX(last.x), toMapY(last.z), 4, 0, Math.PI * 2);
+        hudCtx.fill();
+
+        // 現在位置ドット
+        hudCtx.fillStyle = '#f43f5e';
+        hudCtx.beginPath();
+        hudCtx.arc(toMapX(curr.x), toMapY(curr.z), 4.5, 0, Math.PI * 2);
+        hudCtx.fill();
+      }
+
+      // -----------------------------------------------------------------------
+      // 下部コックピットダッシュボード＆スピードメーター
+      // -----------------------------------------------------------------------
+      const dashH = w < 768 ? 72 : 90;
+      const dashY = h - dashH;
+      hudCtx.fillStyle = 'rgba(3, 7, 18, 0.88)';
+      hudCtx.beginPath();
+      hudCtx.moveTo(0, dashY + 12);
+      hudCtx.lineTo(w * 0.25, dashY);
+      hudCtx.lineTo(w * 0.75, dashY);
+      hudCtx.lineTo(w, dashY + 12);
+      hudCtx.lineTo(w, h);
+      hudCtx.lineTo(0, h);
+      hudCtx.closePath();
+      hudCtx.fill();
+
+      hudCtx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
+      hudCtx.lineWidth = 1.5;
+      hudCtx.stroke();
+
+      hudCtx.textAlign = 'center';
+      hudCtx.font = w < 768 ? 'bold 26px "Share Tech Mono", monospace' : 'bold 34px "Share Tech Mono", monospace';
+      hudCtx.fillStyle = '#f8fafc';
+      hudCtx.fillText(`${Math.round(appState.speedKmh)} km/h`, w * 0.5, dashY + (w < 768 ? 36 : 44));
+
+      hudCtx.font = '11px "Noto Sans JP", sans-serif';
+      hudCtx.fillStyle = '#94a3b8';
+      const modeText = appState.autoCruise ? '自動ドライブ中（矢印キーで手動切替）' : '手動ドライブ中';
+      hudCtx.fillText(modeText, w * 0.5, dashY + (w < 768 ? 56 : 68));
+    }
+
+    function showArrivalModal() {
+      const km = (appState.totalDistance / 1000).toFixed(2);
+      document.getElementById('arrival-summary').textContent =
+        `${appState.fromName} → ${appState.toName}（走行距離 ${km} km）`;
+      document.getElementById('arrival-overlay').classList.remove('hidden');
+    }
+
+    // =========================================================================
+    // 7. UIイベント＆アニメーションループ
+    // =========================================================================
+    function setupEvents() {
+      // プリセットボタン
+      document.querySelectorAll('.preset-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          document.getElementById('input-from').value = btn.dataset.from;
+          document.getElementById('input-via').value = '';
+          document.getElementById('input-to').value = btn.dataset.to;
+          document.getElementById('route-candidates-box').classList.add('hidden');
+          searchedRouteCache.key = '';
+        });
+      });
+
+      // 出発地と目的地の入れ替え（逆走ルート）ボタン
+      document.getElementById('btn-swap-places').addEventListener('click', () => {
+        const fromEl = document.getElementById('input-from');
+        const toEl = document.getElementById('input-to');
+        const tmp = fromEl.value;
+        fromEl.value = toEl.value;
+        toEl.value = tmp;
+        document.getElementById('route-candidates-box').classList.add('hidden');
+        searchedRouteCache.key = '';
+      });
+
+      document.getElementById('btn-search-routes').addEventListener('click', async () => {
+        const btn = document.getElementById('btn-search-routes');
+        btn.disabled = true;
+        btn.classList.add('opacity-60');
+        try {
+          await searchRouteCandidates();
+        } catch (err) {
+          setStatus(err.message || 'ルート検索に失敗しました', false, true);
+        } finally {
+          btn.disabled = false;
+          btn.classList.remove('opacity-60');
+        }
+      });
+
+      document.getElementById('btn-build-drive').addEventListener('click', buildRealRouteWorld);
+
+      document.getElementById('btn-open-route-modal').addEventListener('click', () => {
+        document.getElementById('route-modal').classList.remove('hidden');
+      });
+
+      document.getElementById('btn-close-modal').addEventListener('click', () => {
+        document.getElementById('route-modal').classList.add('hidden');
+      });
+
+      document.getElementById('btn-drive-again').addEventListener('click', () => {
+        appState.currentDist = 0;
+        appState.arrived = false;
+        appState.driving = true;
+        document.getElementById('arrival-overlay').classList.add('hidden');
+      });
+
+      document.getElementById('btn-new-route').addEventListener('click', () => {
+        document.getElementById('arrival-overlay').classList.add('hidden');
+        document.getElementById('route-modal').classList.remove('hidden');
+      });
+
+      // 速度倍率トグル
+      const mults = [1.0, 1.5, 2.5, 4.0];
+      let multIdx = 1;
+      document.getElementById('btn-speed-mult').addEventListener('click', (e) => {
+        multIdx = (multIdx + 1) % mults.length;
+        appState.speedMultiplier = mults[multIdx];
+        e.target.textContent = `SPEED: ${appState.speedMultiplier}x`;
+      });
+
+      // オートクルーズトグル
+      document.getElementById('btn-cruise').addEventListener('click', (e) => {
+        appState.autoCruise = !appState.autoCruise;
+        e.target.textContent = appState.autoCruise ? 'CRUISE: ON' : 'CRUISE: OFF';
+      });
+
+      // 時間帯サイクル
+      document.getElementById('btn-time').addEventListener('click', () => {
+        appState.timeOfDay = (appState.timeOfDay + 4) % 24;
+        updateTimeLighting();
+      });
+
+      // サウンドトグル
+      let engineOsc = null;
+      let engineGain = null;
+      document.getElementById('btn-sound').addEventListener('click', async (e) => {
+        appState.soundEnabled = !appState.soundEnabled;
+        e.target.textContent = appState.soundEnabled ? 'SOUND: ON' : 'SOUND: OFF';
+        if (appState.soundEnabled && !engineOsc) {
+          await Tone.start();
+          engineGain = new Tone.Gain(0.03).toDestination();
+          engineOsc = new Tone.Oscillator(55, 'triangle').connect(engineGain);
+          engineOsc.start();
+        } else if (engineGain) {
+          engineGain.gain.rampTo(appState.soundEnabled ? 0.03 : 0, 0.1);
+        }
+      });
+
+      // キーボード
+      window.addEventListener('keydown', (e) => {
+        if (e.code === 'ArrowUp' || e.code === 'KeyW') keys.up = true;
+        if (e.code === 'ArrowDown' || e.code === 'KeyS') keys.down = true;
+        if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
+        if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+      });
+      window.addEventListener('keyup', (e) => {
+        if (e.code === 'ArrowUp' || e.code === 'KeyW') keys.up = false;
+        if (e.code === 'ArrowDown' || e.code === 'KeyS') keys.down = false;
+        if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+        if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+      });
+
+      // モバイルタッチボタン
+      const bindTouch = (id, key) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('touchstart', (e) => { e.preventDefault(); keys[key] = true; }, { passive: false });
+        el.addEventListener('touchend', (e) => { e.preventDefault(); keys[key] = false; }, { passive: false });
+        el.addEventListener('mousedown', () => { keys[key] = true; });
+        el.addEventListener('mouseup', () => { keys[key] = false; });
+      };
+      bindTouch('m-left', 'left');
+      bindTouch('m-right', 'right');
+      bindTouch('m-gas', 'up');
+      bindTouch('m-brake', 'down');
+    }
+
+    function handleResize() {
+      const container = document.getElementById('three-container');
+      if (camera && renderer && container) {
+        camera.aspect = container.clientWidth / container.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(container.clientWidth, container.clientHeight);
+      }
+      if (hudCanvas) {
+        hudCanvas.width = window.innerWidth;
+        hudCanvas.height = window.innerHeight;
+      }
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = Math.min(0.05, clock.getDelta());
+
+      if (appState.hasRoute) {
+        updateDriveSimulation(dt);
+        updateCameraPose();
+      }
+
+      renderer.render(scene, camera);
+      drawHUD();
+    }
+
+    window.onload = function () {
+      hudCanvas = document.getElementById('hud-canvas');
+      hudCtx = hudCanvas.getContext('2d');
+      handleResize();
+
+      initThree();
+      setupEvents();
+      window.addEventListener('resize', handleResize);
+
+      animate();
+    };
+  </script>
+</body>
+</html>
